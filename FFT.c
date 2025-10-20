@@ -2,9 +2,32 @@
 #include <math.h>
 #include <windows.h>
 #include <stdlib.h>  // 新增：用于malloc和free
+#include "FFT.h"
 
 #define M_PI 3.14159265358979323846
 
+
+
+FFTContext* trig_table(int max_size)
+{
+    FFTContext* ctx = (FFTContext*)malloc(sizeof(FFTContext));
+    ctx->size = max_size;
+    ctx->cos_table = (float*)malloc((max_size/2) * sizeof(float));
+    ctx->sin_table = (float*)malloc((max_size/2) * sizeof(float));
+    for (int i = 0; i < max_size/2; i++) {
+        ctx->cos_table[i] = cosf(2 * M_PI * i / max_size);
+        ctx->sin_table[i] = sinf(2 * M_PI * i / max_size);
+    }
+    return ctx;
+}
+
+void free_trig_table(FFTContext* ctx) {
+    if (ctx) {
+        free(ctx->cos_table);
+        free(ctx->sin_table);
+        free(ctx);
+    }
+}
 
 void signal_gen(float real[], float imag[], int N) {
     for (int n = 0; n < N; n++) {
@@ -13,7 +36,7 @@ void signal_gen(float real[], float imag[], int N) {
     }
 }
 
-void fft_digui(float real[], float imag[], int N) {
+void fft_digui(float real[], float imag[], int N, FFTContext* ctx) {
     if (N <= 1) return;
     // 堆上分配数组，避免栈溢出
     float* even_real = (float*)malloc(N/2 * sizeof(float));
@@ -27,19 +50,22 @@ void fft_digui(float real[], float imag[], int N) {
         odd_real[k] = real[2*k+1];
         odd_imag[k] = imag[2*k+1];
     }
-    fft_digui(even_real, even_imag, N/2);
-    fft_digui(odd_real, odd_imag, N/2);
+    fft_digui(even_real, even_imag, N/2,ctx);
+    fft_digui(odd_real, odd_imag, N/2,ctx);
 
     float WN_real = 1.0f, WN_imag = 0.0f;
     for (int i = 0; i < N/2; i++) {
+        int idx = i * (ctx->size / N);
+        WN_real = ctx->cos_table[idx];
+        WN_imag = -ctx->sin_table[idx];
         real[i] = even_real[i] + odd_real[i]*WN_real - odd_imag[i]*WN_imag;
         imag[i] = even_imag[i] + odd_imag[i]*WN_real + odd_real[i]*WN_imag;
         real[i+N/2] = even_real[i] - (odd_real[i]*WN_real - odd_imag[i]*WN_imag);
         imag[i+N/2] = even_imag[i] - (odd_imag[i]*WN_real + odd_real[i]*WN_imag);
 
-        float temp_real = WN_real;
-        WN_real = WN_real * cosf(2*M_PI/N) - WN_imag * sinf(2*M_PI/N);  
-        WN_imag = WN_imag * cosf(2*M_PI/N) + temp_real * sinf(2*M_PI/N);  
+        // float temp_real = WN_real;
+        // WN_real = WN_real * cosf(2*M_PI/N) - WN_imag * sinf(2*M_PI/N);  
+        // WN_imag = WN_imag * cosf(2*M_PI/N) + temp_real * sinf(2*M_PI/N);  
     }
 
     // 释放堆内存
@@ -77,7 +103,7 @@ void bit_reverse(float real[], float imag[], int N)
     return;
 }
 
-void fft_diedai(float real[],float imag[],int N)
+void fft_diedai(float real[],float imag[],int N, FFTContext* ctx)
 {
     bit_reverse(real,imag,N);
     int m = log2(N);
@@ -90,6 +116,9 @@ void fft_diedai(float real[],float imag[],int N)
             float WN_imag = 0.0f;
             for (int j = 0;j<M/2;j++)
             {
+                int idx = j * (ctx->size / M);
+                WN_real = ctx->cos_table[idx];
+                WN_imag = -ctx->sin_table[idx];
                 int t = k+j;
                 int u = k+j + M/2;
                 float temp_real1 = real[t] + real[u]*WN_real - imag[u]*WN_imag;
@@ -100,9 +129,9 @@ void fft_diedai(float real[],float imag[],int N)
                 imag[t] = temp_imag1;   
                 real[u] = temp_real2;
                 imag[u] = temp_imag2;
-                float temp_WN_real = WN_real;
-                WN_real = temp_WN_real * cosf(2*M_PI/M) + WN_imag * sinf(2*M_PI/M);  
-                WN_imag = WN_imag * cosf(2*M_PI/M) - temp_WN_real * sinf(2*M_PI/M);  
+                // float temp_WN_real = WN_real;
+                // WN_real = temp_WN_real * cosf(2*M_PI/M) + WN_imag * sinf(2*M_PI/M);  
+                // WN_imag = WN_imag * cosf(2*M_PI/M) - temp_WN_real * sinf(2*M_PI/M);  
             }
 
         }

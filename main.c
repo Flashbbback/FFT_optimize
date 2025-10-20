@@ -12,20 +12,28 @@ int main() {
     for (int i = 0; i < sizeof(fft_size)/sizeof(fft_size[0]); i++) {
         int size = fft_size[i];
         // 堆上分配信号数组，避免栈溢出
-        float* signal_real = (float*)malloc(size * sizeof(float));
-        float* signal_imag = (float*)malloc(size * sizeof(float));
-        
-        signal_gen(signal_real, signal_imag, size);
+        float* signal_real1 = (float*)malloc(size * sizeof(float));
+        float* signal_imag1 = (float*)malloc(size * sizeof(float));
+        float* signal_real2 = (float*)malloc(size * sizeof(float));
+        float* signal_imag2 = (float*)malloc(size * sizeof(float));      
+
+        FFTContext* ctx = trig_table(size);
+        signal_gen(signal_real1, signal_imag1 , size);
+        // 分配内存后，复制内容（而非指针赋值）
+        memcpy(signal_real2, signal_real1, size * sizeof(float));
+        memcpy(signal_imag2, signal_imag1, size * sizeof(float));
 
         QueryPerformanceCounter(&start[0]);
         for (int j = 0; j < repeat; j++) {
-            fft_digui(signal_real, signal_imag, size);
+            fft_digui(signal_real1, signal_imag1, size, ctx);
         }
         QueryPerformanceCounter(&end[0]);
+        
+
 
         QueryPerformanceCounter(&start[1]);
         for (int j = 0; j < repeat; j++) {
-            fft_diedai(signal_real, signal_imag, size);
+            fft_diedai(signal_real2, signal_imag2 , size, ctx);
         }
         QueryPerformanceCounter(&end[1]);
         // 计算并输出当前size的耗时（建议在此处输出，避免循环外变量问题）
@@ -35,8 +43,11 @@ int main() {
         printf("Size: %d, Repeat: %d, Time taken with diedai: %.6f ms\n", size, repeat, time2 * 1000);
 
         // 释放信号数组
-        free(signal_real);
-        free(signal_imag);
+        free(signal_real1);
+        free(signal_imag1);
+        free(signal_real2);
+        free(signal_imag2);
+        free_trig_table(ctx);
     }
 
     printf("FFT completed.\n");  // 现在会执行到这里
