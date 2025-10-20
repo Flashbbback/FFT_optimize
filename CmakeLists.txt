@@ -1,0 +1,9 @@
+cmake_minimum_required(VERSION 3.10)
+
+PROJECT(FFT)
+
+add_executable(FFT FFT.c main.c)
+
+target_compile_options(FFT PRIVATE -Wall -O3 -march=native)
+
+target_include_directories(FFT PRIVATE kernel32 m)

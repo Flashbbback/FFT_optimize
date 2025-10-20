@@ -1,0 +1,3 @@
+D:/FFT/C/build/CMakeFiles/FFT.dir
+D:/FFT/C/build/CMakeFiles/edit_cache.dir
+D:/FFT/C/build/CMakeFiles/rebuild_cache.dir
