@@ -12,10 +12,10 @@ int main() {
     for (int i = 0; i < sizeof(fft_size)/sizeof(fft_size[0]); i++) {
         int size = fft_size[i];
         // 堆上分配信号数组，避免栈溢出
-        float* signal_real1 = (float*)malloc(size * sizeof(float));
-        float* signal_imag1 = (float*)malloc(size * sizeof(float));
-        float* signal_real2 = (float*)malloc(size * sizeof(float));
-        float* signal_imag2 = (float*)malloc(size * sizeof(float));      
+        float* signal_real1 = (float*)_aligned_malloc(size * sizeof(float),32);
+        float* signal_imag1 = (float*)_aligned_malloc(size * sizeof(float),32);
+        float* signal_real2 = (float*)_aligned_malloc(size * sizeof(float),32);
+        float* signal_imag2 = (float*)_aligned_malloc(size * sizeof(float),32);
 
         FFTContext* ctx = trig_table(size);
         signal_gen(signal_real1, signal_imag1 , size);
