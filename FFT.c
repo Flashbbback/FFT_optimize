@@ -180,8 +180,8 @@ void fft_AVX(float real[], float imag[], int N, FFTContext *ctx)
 
         else if(M == 4)
         {
-            __m256 w_real = _mm256_set_ps(0,1,0,1,0,1,0,1);
-            __m256 w_imag = _mm256_set_ps();
+            __m256 w_real = _mm256_set_ps(0,-1,0,1,0,-1,0,1);
+            __m256 w_imag = _mm256_set_ps(1,0,-1,0,1,0,-1,0);
             
             for(int j = 0;j<N/8;j++)
             {
@@ -204,10 +204,78 @@ void fft_AVX(float real[], float imag[], int N, FFTContext *ctx)
 
         }
 
+        else if(M == 8)
+        {
+            __m256 w_real = _mm256_set_ps(-cosf(2*M_PI/M*3),-cosf(2*M_PI/M*2),-cosf(2*M_PI/M*1),-cosf(2*M_PI/M*0),cosf(2*M_PI/M*3),cosf(2*M_PI/M*2),cosf(2*M_PI/M*1),cosf(2*M_PI/M*0));//低位正，高位负
+            __m256 w_imag = _mm256_set_ps(-sinf(-2*M_PI/M*3),-sinf(-2*M_PI/M*2),-sinf(-2*M_PI/M*1),-sinf(-2*M_PI/M*0),sinf(-2*M_PI/M*3),sinf(-2*M_PI/M*2),sinf(-2*M_PI/M*1),sinf(-2*M_PI/M*0));
+            for(int j = 0;j<N/8;j++)
+            {
+                __m256 real_val = real_vec[j];
+                __m256 imag_val = imag_vec[j];
+
+                __m256 a_real = _mm256_permute2f128_ps(real_val,real_val,0x00);
+                __m256 b_real = _mm256_permute2f128_ps(real_val,real_val,0x11);
+                __m256 a_imag = _mm256_permute2f128_ps(imag_val,imag_val,0x00);
+                __m256 b_imag = _mm256_permute2f128_ps(imag_val,imag_val,0x11);
+
+                __m256 r_real = _mm256_sub_ps(_mm256_mul_ps(b_real,w_real),_mm256_mul_ps(b_imag,w_imag));//可用FMA优化 
+                __m256 i_imag = _mm256_add_ps(_mm256_mul_ps(b_real,w_imag),_mm256_mul_ps(b_imag,w_real));//可用FMA优化
+
+                real_vec[j] = _mm256_add_ps(a_real,r_real);
+                imag_vec[j] = _mm256_add_ps(a_imag,i_imag);
+
+
+
+            }
+
+
+
+        }
+
+        else
+        {
+
+            for(int k = 0;k<N/8;k+=M/8)
+            {
+
+                for(int j = 0;j<M/2/8;j++)
+                {
+                    int idx = j * (ctx->size / M);
+
+                    __m256 w_real = _mm256_set_ps(ctx->cos_table[idx+7],ctx->cos_table[idx+6],ctx->cos_table[idx+5],ctx->cos_table[idx+4],ctx->cos_table[idx+3],ctx->cos_table[idx+2],ctx->cos_table[idx+1],ctx->cos_table[idx]);
+                    __m256 w_imag = _mm256_set_ps(-ctx->sin_table[idx+7],-ctx->sin_table[idx+6],-ctx->sin_table[idx+5],-ctx->sin_table[idx+4],-ctx->sin_table[idx+3],-ctx->sin_table[idx+2],-ctx->sin_table[idx+1],-ctx->sin_table[idx]);
+
+
+                    __m256 real_val1 = real_vec[k+j];
+                    __m256 imag_val1 = imag_vec[k+j];
+                    __m256 real_val2 = real_vec[k+j+M/2/8];
+                    __m256 imag_val2 = imag_vec[k+j+M/2/8];
+
+
+                    __m256 r_real = _mm256_sub_ps(_mm256_mul_ps(real_val2,w_real),_mm256_mul_ps(imag_val2,w_imag));//可用FMA优化 
+                    __m256 i_imag = _mm256_add_ps(_mm256_mul_ps(real_val2,w_imag),_mm256_mul_ps(imag_val2,w_real));//可用FMA优化
+
+                    real_vec[k+j] = _mm256_add_ps(real_val1,r_real);
+                    imag_vec[k+j] = _mm256_add_ps(imag_val1,i_imag);
+                    real_vec[k+j+M/2/8] = _mm256_sub_ps(real_val1,r_real);
+                    imag_vec[k+j+M/2/8] = _mm256_sub_ps(imag_val1,i_imag);
+
+
+
+                }
+            }
+
+
+
+
+
+
+        }
+
 
 
     }
-
 }
+
 
 

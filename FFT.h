@@ -16,4 +16,5 @@ void fft_diedai(float real[], float imag[], int N, FFTContext* ctx);
 void signal_gen(float real[], float imag[], int N);
 void fft_digui(float real[], float imag[], int N, FFTContext* ctx);
 void bit_reverse(float real[], float imag[], int N);
+void fft_AVX(float real[], float imag[], int N, FFTContext* ctx);
 #endif // FFT_H
