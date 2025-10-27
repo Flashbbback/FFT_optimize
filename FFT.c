@@ -2,6 +2,7 @@
 #include <math.h>
 #include <windows.h>
 #include <stdlib.h>  // 新增：用于malloc和free
+#include <immintrin.h>
 #include "FFT.h"
 
 #define M_PI 3.14159265358979323846
@@ -138,3 +139,75 @@ void fft_diedai(float real[],float imag[],int N, FFTContext* ctx)
     }
 return; 
 }
+
+
+
+
+void fft_AVX(float real[], float imag[], int N, FFTContext *ctx)
+{
+    bit_reverse(real, imag, N);
+     __m256 *real_vec = (__m256 *)real;
+     __m256 *imag_vec = (__m256 *)imag;
+    int m = log2(N);
+    for (int s = 1;s<=m;s++)
+    {
+        int M = 1<<s;
+        //M = 2时 cos = 1,sin = 0;
+        if (M == 2)
+        {
+            for (int j = 0; j < N/8; j++)
+            {
+                __m256 real_val = real_vec[j];
+                __m256 imag_val = imag_vec[j];
+                
+                // 提取偶数和奇数元素
+                __m256 even_real = _mm256_shuffle_ps(real_val, real_val, _MM_SHUFFLE(2,0,2,0));
+                __m256 odd_real = _mm256_shuffle_ps(real_val, real_val, _MM_SHUFFLE(3,1,3,1));
+                __m256 even_imag = _mm256_shuffle_ps(imag_val, imag_val, _MM_SHUFFLE(2,0,2,0));
+                __m256 odd_imag = _mm256_shuffle_ps(imag_val, imag_val, _MM_SHUFFLE(3,1,3,1));
+                
+                // 蝶形运算
+                __m256 result_real = _mm256_add_ps(even_real, odd_real);
+                __m256 result_imag = _mm256_add_ps(even_imag, odd_imag);
+                __m256 result_real2 = _mm256_sub_ps(even_real, odd_real);
+                __m256 result_imag2 = _mm256_sub_ps(even_imag, odd_imag);
+                
+                // 交错存储结果
+                real_vec[j] = _mm256_unpacklo_ps(result_real, result_real2);
+                imag_vec[j] = _mm256_unpacklo_ps(result_imag, result_imag2);
+            }
+        }
+
+        else if(M == 4)
+        {
+            __m256 w_real = _mm256_set_ps(0,1,0,1,0,1,0,1);
+            __m256 w_imag = _mm256_set_ps();
+            
+            for(int j = 0;j<N/8;j++)
+            {
+                __m256 real_val = real_vec[j];
+                __m256 imag_val = imag_vec[j];
+
+                __m256 a_real = _mm256_shuffle_ps(real_val, real_val, _MM_SHUFFLE(1,0,1,0));
+                __m256 b_real = _mm256_shuffle_ps(real_val, real_val, _MM_SHUFFLE(3,2,3,2));
+                __m256 a_imag = _mm256_shuffle_ps(imag_val, imag_val, _MM_SHUFFLE(1,0,1,0));
+                __m256 b_imag = _mm256_shuffle_ps(imag_val, imag_val, _MM_SHUFFLE(3,2,3,2));
+
+                __m256 r_real = _mm256_sub_ps(_mm256_mul_ps(b_real,w_real),_mm256_mul_ps(b_imag,w_imag));//可用FMA优化 
+                __m256 i_imag = _mm256_add_ps(_mm256_mul_ps(b_real,w_imag),_mm256_mul_ps(b_imag,w_real));//可用FMA优化
+
+                real_vec[j] = _mm256_add_ps(a_real,r_real);
+                imag_vec[j] = _mm256_add_ps(a_imag,i_imag);
+            }
+
+
+
+        }
+
+
+
+    }
+
+}
+
+
