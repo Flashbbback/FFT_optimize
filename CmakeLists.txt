@@ -1,9 +1,23 @@
 cmake_minimum_required(VERSION 3.10)
-
 PROJECT(FFT)
 
+# 生成可执行文件（自动链接C标准库，包含printf实现）
 add_executable(FFT FFT.c main.c)
 
-target_compile_options(FFT PRIVATE -Wall -O3 -march=native)
+# 编译选项：启用警告、优化、AVX/AVX2指令集（仅GCC/Clang有效）
+target_compile_options(FFT PRIVATE 
+    -Wall        # 启用所有警告
+    -O3          # 最高级优化
+    -mavx        # 启用AVX指令集
+    -mavx2       # 启用AVX2指令集
+    -mfma
+    -march=native  # 针对当前CPU架构优化
+)
 
-target_include_directories(FFT PRIVATE kernel32 m)
+# 链接数学库（解决sinf/cosf等函数的引用问题）
+target_link_libraries(FFT PRIVATE m)
+
+# （可选）若需链接Windows系统库（如kernel32），用以下方式（通常不需要手动加）
+# if(WIN32)
+#     target_link_libraries(FFT PRIVATE kernel32)
+# endif()
