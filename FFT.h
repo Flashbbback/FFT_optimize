@@ -6,8 +6,13 @@
 typedef struct{
     float *cos_table;
     float *sin_table;
+    float *shuffled_cos_table;
+    float *shuffled_sin_table;
     int16_t *cos_t;
     int16_t *sin_t;
+    int16_t *shuffled_cos_t;
+    int16_t *shuffled_sin_t;
+    int *stage_offsets;
     int* pos;
     int size;
 
