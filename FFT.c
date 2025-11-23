@@ -415,25 +415,23 @@ void fft_AVX_fixedP(int16_t real[], int16_t imag[], int N, FFTContext *ctx)
         //M = 2时 cos = 1,sin = 0;
         if (M == 2)
         {
+                        // // 提取偶数和奇数元素
+            __m256i even_mask = _mm256_set_epi8(
+                    13,12,9,8,5,4,1,0,13,12,9,8,5,4,1,0,
+                    13,12,9,8,5,4,1,0,13,12,9,8,5,4,1,0
+            );
+
+
+            __m256i odd_mask = _mm256_set_epi8(
+                    15,14,11,10,7,6,3,2,15,14,11,10,7,6,3,2,
+                    15,14,11,10,7,6,3,2,15,14,11,10,7,6,3,2
+            );
             for (int j = 0; j < N/16; j++)
             {
                 __m256i real_val = real_vec[j];
                 __m256i imag_val = imag_vec[j];
 
                 
-                
-                // // 提取偶数和奇数元素
-                __m256i even_mask = _mm256_set_epi8(
-                        13,12,9,8,5,4,1,0,13,12,9,8,5,4,1,0,
-                        13,12,9,8,5,4,1,0,13,12,9,8,5,4,1,0
-                );
-
-
-                __m256i odd_mask = _mm256_set_epi8(
-                        15,14,11,10,7,6,3,2,15,14,11,10,7,6,3,2,
-                        15,14,11,10,7,6,3,2,15,14,11,10,7,6,3,2
-                );
-
                 // 0 2 4 6 0 2 4 6/8 10 12 14 8 10 12 14
                 // 1 3 5 7 1 3 5 7/9 11 13 15 9 11 13 15 
                 __m256i even_real = _mm256_shuffle_epi8(real_val,even_mask);
@@ -630,15 +628,352 @@ void fft_AVX_fixedP(int16_t real[], int16_t imag[], int N, FFTContext *ctx)
 
                 }
             }
+        }
+    }
+}
 
 
+void fft_AVX512_fixedP(int16_t real[], int16_t imag[], int N, FFTContext *ctx)
+{
+    bit_reverse_q15(real, imag, N,ctx);
+     __m512i *real_vec = (__m512i *)real;
+     __m512i *imag_vec = (__m512i *)imag;
+    int m = log2(N);
+    for (int s = 1;s<=m;s++)
+    {
+        int M = 1<<s;
+        size_t offset_ptr = ctx->stage_offsets[s];
+        //M = 2时 cos = 1,sin = 0;
+        if (M == 2)
+        {
 
+
+            //提取偶数和奇数元素
+            __m512i even_mask = _mm512_set_epi8(
+                0x3D,0x3C,0x39,0x38,0x35,0x34,0x31,0x30,
+                0x3D,0x3C,0x39,0x38,0x35,0x34,0x31,0x30,
+                0x2D,0x2C,0x29,0x28,0x25,0x24,0x21,0x20,
+                0x2D,0x2C,0x29,0x28,0x25,0x24,0x21,0x20,
+                0x1D,0x1C,0x19,0x18,0x15,0x14,0x11,0x10,
+                0x1D,0x1C,0x19,0x18,0x15,0x14,0x11,0x10,
+                0x0D,0x0C,0x09,0x08,0x05,0x04,0x01,0x00,
+                0x0D,0x0C,0x09,0x08,0x05,0x04,0x01,0x00
+            );
+
+
+            __m512i odd_mask = _mm512_set_epi8(
+                0x3F,0x3E,0x3B,0x3A,0x37,0x36,0x33,0x32,
+                0x3F,0x3E,0x3B,0x3A,0x37,0x36,0x33,0x32,
+                0x2F,0x2E,0x2B,0x2A,0x27,0x26,0x23,0x22,
+                0x2F,0x2E,0x2B,0x2A,0x27,0x26,0x23,0x22,
+                0x1F,0x1E,0x1B,0x1A,0x17,0x16,0x13,0x12,
+                0x1F,0x1E,0x1B,0x1A,0x17,0x16,0x13,0x12,
+                0x0F,0x0E,0x0B,0x0A,0x07,0x06,0x03,0x02,
+                0x0F,0x0E,0x0B,0x0A,0x07,0x06,0x03,0x02
+            );
+            for (int j = 0; j < N/32; j++)
+            {
+                __m512i real_val = real_vec[j];
+                __m512i imag_val = imag_vec[j];
+
+                __m512i even_real = _mm512_shuffle_epi8(real_val,even_mask);
+                __m512i even_imag = _mm512_shuffle_epi8(imag_val,even_mask);
+                __m512i odd_real = _mm512_shuffle_epi8(real_val,odd_mask);
+                __m512i odd_imag = _mm512_shuffle_epi8(imag_val,odd_mask);
+
+                __m512i result_real = _mm512_add_epi16(even_real, odd_real);
+                __m512i result_imag = _mm512_add_epi16(even_imag, odd_imag);
+                __m512i result_real2 = _mm512_sub_epi16(even_real, odd_real);
+                __m512i result_imag2 = _mm512_sub_epi16(even_imag, odd_imag);
+                
+                // 交错存储结果
+                real_vec[j] = _mm512_unpacklo_epi16(result_real, result_real2);
+                imag_vec[j] = _mm512_unpacklo_epi16(result_imag, result_imag2);
+            }
+        }
+
+        else if(M == 4)
+        {
+            // __m512i w_real = _mm512_setr_epi16(1,0,-1,0,1,0,-1,0,1,0,-1,0,1,0,-1,0);
+            // __m512i w_imag = _mm512_setr_epi16(0,-1,0,1,0,-1,0,1,0,-1,0,1,0,-1,0,1);
+
+            int step = ctx->size / M;
+            __m512i w_real = _mm512_set_epi16(ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0]);
+            __m512i w_imag = _mm512_set_epi16(ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0]);
+
+
+            // 提取对应元素
+            //0 1 0 1  4 5 4 5 8 9 8 9  12 13 12 13
+            __m512i a_mask = _mm512_set_epi8(
+                // m63~m48（d24~d31的高/低字节）
+                0x3D, 0x3C, 0x3B, 0x3A, 0x3D, 0x3C, 0x3B, 0x3A,
+                0x35, 0x34, 0x33, 0x32, 0x35, 0x34, 0x33, 0x32,
+                // m47~m32（d16~d23的高/低字节）
+                0x2D, 0x2C, 0x2B, 0x2A, 0x2D, 0x2C, 0x2B, 0x2A,
+                0x25, 0x24, 0x23, 0x22, 0x25, 0x24, 0x23, 0x22,
+                // m31~m16（d8~d15的高/低字节）
+                0x1D, 0x1C, 0x1B, 0x1A, 0x1D, 0x1C, 0x1B, 0x1A,
+                0x15, 0x14, 0x13, 0x12, 0x15, 0x14, 0x13, 0x12,
+                // m15~m0（d0~d7的高/低字节）
+                0x0B, 0x0A, 0x09, 0x08, 0x0B, 0x0A, 0x09, 0x08,
+                0x03, 0x02, 0x01, 0x00, 0x03, 0x02, 0x01, 0x00
+            );
+
+            // 2 3 2 3 6 7 6 7 10 11 10 11 14 15 14 15
+            __m512i b_mask = _mm512_set_epi8(
+                // m63~m48（d24~d31的高/低字节）
+                0x3F, 0x3E, 0x3D, 0x3C, 0x3F, 0x3E, 0x3D, 0x3C,
+                0x37, 0x36, 0x35, 0x34, 0x37, 0x36, 0x35, 0x34,
+                // m47~m32（d16~d23的高/低字节）
+                0x2F, 0x2E, 0x2D, 0x2C, 0x2F, 0x2E, 0x2D, 0x2C,
+                0x27, 0x26, 0x25, 0x24, 0x27, 0x26, 0x25, 0x24,
+                // m31~m16（d8~d15的高/低字节）
+                0x1F, 0x1E, 0x1D, 0x1C, 0x1F, 0x1E, 0x1D, 0x1C,
+                0x17, 0x16, 0x15, 0x14, 0x17, 0x16, 0x15, 0x14,
+                // m15~m0（d0~d7的高/低字节）
+                0x0F, 0x0E, 0x0D, 0x0C, 0x0F, 0x0E, 0x0D, 0x0C,
+                0x07, 0x06, 0x05, 0x04, 0x07, 0x06, 0x05, 0x04
+            );
+            
+            for(int j = 0;j<N/32;j++)
+            {
+                __m512i real_val = real_vec[j];
+                __m512i imag_val = imag_vec[j];
+
+                __m512i a_real = _mm512_shuffle_epi8(real_val,a_mask);
+                __m512i a_imag = _mm512_shuffle_epi8(imag_val,a_mask);
+                __m512i b_real = _mm512_shuffle_epi8(real_val,b_mask);
+                __m512i b_imag = _mm512_shuffle_epi8(imag_val,b_mask);
+                //0+2 1+3 0-2 1-3 4+6 5+7 4-6 5-7...
+                __m512i r_real = _mm512_sub_epi16(_mm512_mulhrs_epi16(b_real,w_real),_mm512_mulhrs_epi16(b_imag,w_imag));//可用FMA优化 
+                __m512i i_imag = _mm512_add_epi16(_mm512_mulhrs_epi16(b_real,w_imag),_mm512_mulhrs_epi16(b_imag,w_real));//可用FMA优化
+
+                real_vec[j] = _mm512_add_epi16(a_real,r_real);
+                imag_vec[j] = _mm512_add_epi16(a_imag,i_imag);
+            }
 
 
 
         }
 
+        else if(M == 8)
+        {
+            // __m512i w_real = _mm512_set_epi16(-cosf(2*M_PI/M*3),-cosf(2*M_PI/M*2),-cosf(2*M_PI/M*1),-cosf(2*M_PI/M*0),cosf(2*M_PI/M*3),cosf(2*M_PI/M*2),cosf(2*M_PI/M*1),cosf(2*M_PI/M*0),-cosf(2*M_PI/M*3),-cosf(2*M_PI/M*2),-cosf(2*M_PI/M*1),-cosf(2*M_PI/M*0),cosf(2*M_PI/M*3),cosf(2*M_PI/M*2),cosf(2*M_PI/M*1),cosf(2*M_PI/M*0));//低位正，高位负
+            // __m512i w_imag = _mm512_set_epi16(-sinf(-2*M_PI/M*3),-sinf(-2*M_PI/M*2),-sinf(-2*M_PI/M*1),-sinf(-2*M_PI/M*0),sinf(-2*M_PI/M*3),sinf(-2*M_PI/M*2),sinf(-2*M_PI/M*1),sinf(-2*M_PI/M*0),-sinf(-2*M_PI/M*3),-sinf(-2*M_PI/M*2),-sinf(-2*M_PI/M*1),-sinf(-2*M_PI/M*0),sinf(-2*M_PI/M*3),sinf(-2*M_PI/M*2),sinf(-2*M_PI/M*1),sinf(-2*M_PI/M*0));
+
+            int step = ctx->size / M;
+            __m512i w_real = _mm512_set_epi16(-ctx->cos_t[step*3],-ctx->cos_t[step*2],-ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*3],ctx->cos_t[step*2],ctx->cos_t[step*1],ctx->cos_t[step*0],-ctx->cos_t[step*3],-ctx->cos_t[step*2],-ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*3],ctx->cos_t[step*2],ctx->cos_t[step*1],ctx->cos_t[step*0],-ctx->cos_t[step*3],-ctx->cos_t[step*2],-ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*3],ctx->cos_t[step*2],ctx->cos_t[step*1],ctx->cos_t[step*0],-ctx->cos_t[step*3],-ctx->cos_t[step*2],-ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*3],ctx->cos_t[step*2],ctx->cos_t[step*1],ctx->cos_t[step*0]);
+            __m512i w_imag = _mm512_set_epi16(ctx->sin_t[step*3],ctx->sin_t[step*2],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*3],-ctx->sin_t[step*2],-ctx->sin_t[step*1],-ctx->sin_t[step*0],ctx->sin_t[step*3],ctx->sin_t[step*2],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*3],-ctx->sin_t[step*2],-ctx->sin_t[step*1],-ctx->sin_t[step*0],ctx->sin_t[step*3],ctx->sin_t[step*2],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*3],-ctx->sin_t[step*2],-ctx->sin_t[step*1],-ctx->sin_t[step*0],ctx->sin_t[step*3],ctx->sin_t[step*2],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*3],-ctx->sin_t[step*2],-ctx->sin_t[step*1],-ctx->sin_t[step*0]);
 
 
+            //0 1 2 3 0 1 2 3 2 9 10 11 8 9 10 11
+            __m512i a_mask = _mm512_set_epi8(
+            // m63~m48（d24~d31的高/低字节）
+                0x3D,0x3C,0x3B,0x3A,0x39,0x38,0x37,0x36,
+                0x3D,0x3C,0x3B,0x3A,0x39,0x38,0x37,0x36,
+                // m47~m32（d16~d23的高/低字节）
+                0x2D,0x2C,0x2B,0x2A,0x29,0x28,0x27,0x26,
+                0x2D,0x2C,0x2B,0x2A,0x29,0x28,0x27,0x26,
+                // m31~m16（d8~d15的高/低字节）
+                0x1D,0x1C,0x1B,0x1A,0x19,0x18,0x17,0x16,
+                0x1D,0x1C,0x1B,0x1A,0x19,0x18,0x17,0x16,
+                // m15~m0（d0~d7的高/低字节）
+                0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00,
+                0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00
+            );
+
+            //4 5 6 7 4 5 6 7 12 13 14 15 12 13 14 15
+            __m512i b_mask = _mm512_set_epi8(
+                // m63~m48（d24~d31的高/低字节）
+                0x3F,0x3E,0x3D,0x3C,0x3B,0x3A,0x39,0x38,
+                0x3F,0x3E,0x3D,0x3C,0x3B,0x3A,0x39,0x38,
+                // m47~m32（d16~d23的高/低字节）
+                0x2F,0x2E,0x2D,0x2C,0x2B,0x2A,0x29,0x28,
+                0x2F,0x2E,0x2D,0x2C,0x2B,0x2A,0x29,0x28,
+                // m31~m16（d8~d15的高/低字节）
+                0x1F,0x1E,0x1D,0x1C,0x1B,0x1A,0x19,0x18,
+                0x1F,0x1E,0x1D,0x1C,0x1B,0x1A,0x19,0x18,
+                // m15~m0（d0~d7的高/低字节）
+                0x0F,0x0E,0x0D,0x0C,0x0B,0x0A,0x09,0x08,
+                0x0F,0x0E,0x0D,0x0C,0x0B,0x0A,0x09,0x08
+            );
+            for(int j = 0;j<N/32;j++)
+            {
+                __m512i real_val = real_vec[j];
+                __m512i imag_val = imag_vec[j];
+
+                __m512i a_real = _mm512_shuffle_epi8(real_val,a_mask);
+                __m512i a_imag = _mm512_shuffle_epi8(imag_val,a_mask);
+                __m512i b_real = _mm512_shuffle_epi8(real_val,b_mask);
+                __m512i b_imag = _mm512_shuffle_epi8(imag_val,b_mask);
+
+                __m512i r_real = _mm512_sub_epi16(_mm512_mulhrs_epi16(b_real,w_real),_mm512_mulhrs_epi16(b_imag,w_imag));//可用FMA优化 
+                __m512i i_imag = _mm512_add_epi16(_mm512_mulhrs_epi16(b_real,w_imag),_mm512_mulhrs_epi16(b_imag,w_real));//可用FMA优化
+
+                real_vec[j] = _mm512_add_epi16(a_real,r_real);
+                imag_vec[j] = _mm512_add_epi16(a_imag,i_imag);
+            }
+
+
+
+        }
+
+        else if(M == 16)
+        {
+
+            int step = ctx->size/M;
+            // __m512i w_real = _mm512_set_epi16(FLOAT_TO_Q15(-cosf(2*M_PI/M*7)),FLOAT_TO_Q15(-cosf(2*M_PI/M*6)),FLOAT_TO_Q15(-cosf(2*M_PI/M*5)),FLOAT_TO_Q15(-cosf(2*M_PI/M*4)),FLOAT_TO_Q15(-cosf(2*M_PI/M*3)),FLOAT_TO_Q15(-cosf(2*M_PI/M*2)),FLOAT_TO_Q15(-cosf(2*M_PI/M*1)),FLOAT_TO_Q15(-cosf(2*M_PI/M*0)),FLOAT_TO_Q15(cosf(2*M_PI/M*7)),FLOAT_TO_Q15(cosf(2*M_PI/M*6)),FLOAT_TO_Q15(cosf(2*M_PI/M*5)),FLOAT_TO_Q15(cosf(2*M_PI/M*4)),FLOAT_TO_Q15(cosf(2*M_PI/M*3)),FLOAT_TO_Q15(cosf(2*M_PI/M*2)),FLOAT_TO_Q15(cosf(2*M_PI/M*1)),FLOAT_TO_Q15(cosf(2*M_PI/M*0)));//低位正，高位负
+            // __m512i w_imag = _mm512_set_epi16(FLOAT_TO_Q15(-sinf(-2*M_PI/M*7)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*6)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*5)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*4)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*3)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*2)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*1)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*0)),FLOAT_TO_Q15(sinf(-2*M_PI/M*7)),FLOAT_TO_Q15(sinf(-2*M_PI/M*6)),FLOAT_TO_Q15(sinf(-2*M_PI/M*5)),FLOAT_TO_Q15(sinf(-2*M_PI/M*4)),FLOAT_TO_Q15(sinf(-2*M_PI/M*3)),FLOAT_TO_Q15(sinf(-2*M_PI/M*2)),FLOAT_TO_Q15(sinf(-2*M_PI/M*1)),FLOAT_TO_Q15(sinf(-2*M_PI/M*0)));
+            // 序列1掩码：0~7重复、16~23重复
+            __m512i a_mask= _mm512_set_epi8(
+                // m63~m48（d24~d31的高/低字节：s16~23 → 字节索引32~47）
+                0x2F,0x2E,0x2D,0x2C,0x2B,0x2A,0x29,0x28,
+                0x27,0x26,0x25,0x24,0x23,0x22,0x21,0x20,
+                // m47~m32（d16~d23的高/低字节：s16~23 → 字节索引32~47）
+                0x2F,0x2E,0x2D,0x2C,0x2B,0x2A,0x29,0x28,
+                0x27,0x26,0x25,0x24,0x23,0x22,0x21,0x20,
+                // m31~m16（d8~d15的高/低字节：s0~7 → 字节索引0~15）
+                0x0F,0x0E,0x0D,0x0C,0x0B,0x0A,0x09,0x08,
+                0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00,
+                // m15~m0（d0~d7的高/低字节：s0~7 → 字节索引0~15）
+                0x0F,0x0E,0x0D,0x0C,0x0B,0x0A,0x09,0x08,
+                0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00
+            );
+
+            // 序列2掩码：8~15重复、24~31重复
+            __m512i b_mask = _mm512_set_epi8(
+                // m63~m48（d24~d31的高/低字节：s24~31 → 字节索引48~63）
+                0x3F,0x3E,0x3D,0x3C,0x3B,0x3A,0x39,0x38,
+                0x37,0x36,0x35,0x34,0x33,0x32,0x31,0x30,
+                // m47~m32（d16~d23的高/低字节：s24~31 → 字节索引48~63）
+                0x3F,0x3E,0x3D,0x3C,0x3B,0x3A,0x39,0x38,
+                0x37,0x36,0x35,0x34,0x33,0x32,0x31,0x30,
+                // m31~m16（d8~d15的高/低字节：s8~15 → 字节索引16~31）
+                0x1F,0x1E,0x1D,0x1C,0x1B,0x1A,0x19,0x18,
+                0x17,0x16,0x15,0x14,0x13,0x12,0x11,0x10,
+                // m15~m0（d0~d7的高/低字节：s8~15 → 字节索引16~31）
+                0x1F,0x1E,0x1D,0x1C,0x1B,0x1A,0x19,0x18,
+                0x17,0x16,0x15,0x14,0x13,0x12,0x11,0x10
+            );
+
+            __m512i w_real = _mm512_set_epi16(-ctx->cos_t[step*7],-ctx->cos_t[step*6],-ctx->cos_t[step*5],-ctx->cos_t[step*4],-ctx->cos_t[step*3],-ctx->cos_t[step*2],-ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*7],ctx->cos_t[step*6],ctx->cos_t[step*5],ctx->cos_t[step*4],ctx->cos_t[step*3],ctx->cos_t[step*2],ctx->cos_t[step*1],ctx->cos_t[0],-ctx->cos_t[step*7],-ctx->cos_t[step*6],-ctx->cos_t[step*5],-ctx->cos_t[step*4],-ctx->cos_t[step*3],-ctx->cos_t[step*2],-ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*7],ctx->cos_t[step*6],ctx->cos_t[step*5],ctx->cos_t[step*4],ctx->cos_t[step*3],ctx->cos_t[step*2],ctx->cos_t[step*1],ctx->cos_t[0]);
+            __m512i w_imag = _mm512_set_epi16(ctx->sin_t[step*7],ctx->sin_t[step*6],ctx->sin_t[step*5],ctx->sin_t[step*4],ctx->sin_t[step*3],ctx->sin_t[step*2],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*7],-ctx->sin_t[step*6],-ctx->sin_t[step*5],-ctx->sin_t[step*4],-ctx->sin_t[step*3],-ctx->sin_t[step*2],-ctx->sin_t[step*1],-ctx->sin_t[0],ctx->sin_t[step*7],ctx->sin_t[step*6],ctx->sin_t[step*5],ctx->sin_t[step*4],ctx->sin_t[step*3],ctx->sin_t[step*2],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*7],-ctx->sin_t[step*6],-ctx->sin_t[step*5],-ctx->sin_t[step*4],-ctx->sin_t[step*3],-ctx->sin_t[step*2],-ctx->sin_t[step*1],-ctx->sin_t[0]);
+
+            for(int j = 0;j<N/32;j++)
+            {
+                __m512i real_val = real_vec[j];
+                __m512i imag_val = imag_vec[j];
+
+                __m512i a_real = _mm512_shuffle_epi8(real_val,a_mask);
+                __m512i a_imag = _mm512_shuffle_epi8(imag_val,a_mask);
+                __m512i b_real = _mm512_shuffle_epi8(real_val,b_mask);
+                __m512i b_imag = _mm512_shuffle_epi8(imag_val,b_mask);
+
+                __m512i r_real = _mm512_sub_epi16(_mm512_mulhrs_epi16(b_real,w_real),_mm512_mulhrs_epi16(b_imag,w_imag));//可用FMA优化 
+                __m512i i_imag = _mm512_add_epi16(_mm512_mulhrs_epi16(b_real,w_imag),_mm512_mulhrs_epi16(b_imag,w_real));//可用FMA优化
+
+                real_vec[j] = _mm512_add_epi16(a_real,r_real);
+                imag_vec[j] = _mm512_add_epi16(a_imag,i_imag);
+            }
+
+        }
+
+        else if(M == 32)
+        {
+
+            int step = ctx->size/M;
+            // __m512i w_real = _mm512_set_epi16(FLOAT_TO_Q15(-cosf(2*M_PI/M*7)),FLOAT_TO_Q15(-cosf(2*M_PI/M*6)),FLOAT_TO_Q15(-cosf(2*M_PI/M*5)),FLOAT_TO_Q15(-cosf(2*M_PI/M*4)),FLOAT_TO_Q15(-cosf(2*M_PI/M*3)),FLOAT_TO_Q15(-cosf(2*M_PI/M*2)),FLOAT_TO_Q15(-cosf(2*M_PI/M*1)),FLOAT_TO_Q15(-cosf(2*M_PI/M*0)),FLOAT_TO_Q15(cosf(2*M_PI/M*7)),FLOAT_TO_Q15(cosf(2*M_PI/M*6)),FLOAT_TO_Q15(cosf(2*M_PI/M*5)),FLOAT_TO_Q15(cosf(2*M_PI/M*4)),FLOAT_TO_Q15(cosf(2*M_PI/M*3)),FLOAT_TO_Q15(cosf(2*M_PI/M*2)),FLOAT_TO_Q15(cosf(2*M_PI/M*1)),FLOAT_TO_Q15(cosf(2*M_PI/M*0)));//低位正，高位负
+            // __m512i w_imag = _mm512_set_epi16(FLOAT_TO_Q15(-sinf(-2*M_PI/M*7)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*6)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*5)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*4)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*3)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*2)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*1)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*0)),FLOAT_TO_Q15(sinf(-2*M_PI/M*7)),FLOAT_TO_Q15(sinf(-2*M_PI/M*6)),FLOAT_TO_Q15(sinf(-2*M_PI/M*5)),FLOAT_TO_Q15(sinf(-2*M_PI/M*4)),FLOAT_TO_Q15(sinf(-2*M_PI/M*3)),FLOAT_TO_Q15(sinf(-2*M_PI/M*2)),FLOAT_TO_Q15(sinf(-2*M_PI/M*1)),FLOAT_TO_Q15(sinf(-2*M_PI/M*0)));
+            __m512i a_mask= _mm512_set_epi8(
+            // 序列1掩码：字节索引0~31重复（对应s0~s15重复）
+                0x1F,0x1E,0x1D,0x1C,0x1B,0x1A,0x19,0x18,  // m63~m56：s15的高/低字节 → 31,30,...,24
+                0x17,0x16,0x15,0x14,0x13,0x12,0x11,0x10,  // m55~m48：s14~s8的高/低字节 → 23,22,...,16
+                0x0F,0x0E,0x0D,0x0C,0x0B,0x0A,0x09,0x08,  // m47~m40：s7的高/低字节 → 15,14,...,8
+                0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00,  // m39~m32：s6~s0的高/低字节 → 7,6,...,0
+                // 以下是0~31重复（m31~m0，与上面m63~m32完全一致）
+                0x1F,0x1E,0x1D,0x1C,0x1B,0x1A,0x19,0x18,
+                0x17,0x16,0x15,0x14,0x13,0x12,0x11,0x10,
+                0x0F,0x0E,0x0D,0x0C,0x0B,0x0A,0x09,0x08,
+                0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00
+            );
+
+            __m512i b_mask = _mm512_set_epi8(
+            // 序列2掩码：字节索引32~63重复（对应s16~s31重复）
+                0x3F,0x3E,0x3D,0x3C,0x3B,0x3A,0x39,0x38,  // m63~m56：s31的高/低字节 → 63,62,...,56
+                0x37,0x36,0x35,0x34,0x33,0x32,0x31,0x30,  // m55~m48：s30~s24的高/低字节 → 55,54,...,48
+                0x2F,0x2E,0x2D,0x2C,0x2B,0x2A,0x29,0x28,  // m47~m40：s23的高/低字节 → 47,46,...,40
+                0x27,0x26,0x25,0x24,0x23,0x22,0x21,0x20,  // m39~m32：s22~s16的高/低字节 → 39,38,...,32
+                // 以下是32~63重复（m31~m0，与上面m63~m32完全一致）
+                0x3F,0x3E,0x3D,0x3C,0x3B,0x3A,0x39,0x38,
+                0x37,0x36,0x35,0x34,0x33,0x32,0x31,0x30,
+                0x2F,0x2E,0x2D,0x2C,0x2B,0x2A,0x29,0x28,
+                0x27,0x26,0x25,0x24,0x23,0x22,0x21,0x20
+            );
+
+            __m512i w_real = _mm512_set_epi16(-ctx->cos_t[step*15],-ctx->cos_t[step*14],-ctx->cos_t[step*13],-ctx->cos_t[step*12],-ctx->cos_t[step*11],-ctx->cos_t[step*10],-ctx->cos_t[step*9],-ctx->cos_t[step*8],-ctx->cos_t[step*7],-ctx->cos_t[step*6],-ctx->cos_t[step*5],-ctx->cos_t[step*4],-ctx->cos_t[step*3],-ctx->cos_t[step*2],-ctx->cos_t[step*1],-ctx->cos_t[0],ctx->cos_t[step*15],ctx->cos_t[step*14],ctx->cos_t[step*13],ctx->cos_t[step*12],ctx->cos_t[step*11],ctx->cos_t[step*10],ctx->cos_t[step*9],ctx->cos_t[step*8],ctx->cos_t[step*7],ctx->cos_t[step*6],ctx->cos_t[step*5],ctx->cos_t[step*4],ctx->cos_t[step*3],ctx->cos_t[step*2],ctx->cos_t[step*1],ctx->cos_t[0]);
+            __m512i w_imag = _mm512_set_epi16(ctx->sin_t[step*15],ctx->sin_t[step*14],ctx->sin_t[step*13],ctx->sin_t[step*12],ctx->sin_t[step*11],ctx->sin_t[step*10],ctx->sin_t[step*9],ctx->sin_t[step*8],ctx->sin_t[step*7],ctx->sin_t[step*6],ctx->sin_t[step*5],ctx->sin_t[step*4],ctx->sin_t[step*3],ctx->sin_t[step*2],ctx->sin_t[step*1],ctx->sin_t[0],-ctx->sin_t[step*15],-ctx->sin_t[step*14],-ctx->sin_t[step*13],-ctx->sin_t[step*12],-ctx->sin_t[step*11],-ctx->sin_t[step*10],-ctx->sin_t[step*9],-ctx->sin_t[step*8],-ctx->sin_t[step*7],-ctx->sin_t[step*6],-ctx->sin_t[step*5],-ctx->sin_t[step*4],-ctx->sin_t[step*3],-ctx->sin_t[step*2],-ctx->sin_t[step*1],-ctx->sin_t[0]);
+
+            for(int j = 0;j<N/32;j++)
+            {
+                __m512i real_val = real_vec[j];
+                __m512i imag_val = imag_vec[j];
+
+                __m512i a_real = _mm512_shuffle_epi8(real_val,a_mask);
+                __m512i a_imag = _mm512_shuffle_epi8(imag_val,a_mask);
+                __m512i b_real = _mm512_shuffle_epi8(real_val,b_mask);
+                __m512i b_imag = _mm512_shuffle_epi8(imag_val,b_mask);
+
+                __m512i r_real = _mm512_sub_epi16(_mm512_mulhrs_epi16(b_real,w_real),_mm512_mulhrs_epi16(b_imag,w_imag));//可用FMA优化 
+                __m512i i_imag = _mm512_add_epi16(_mm512_mulhrs_epi16(b_real,w_imag),_mm512_mulhrs_epi16(b_imag,w_real));//可用FMA优化
+
+                real_vec[j] = _mm512_add_epi16(a_real,r_real);
+                imag_vec[j] = _mm512_add_epi16(a_imag,i_imag);
+            }
+
+        }
+
+        else{
+
+            for(int k = 0;k<N/32;k+=M/32)
+            {
+
+                for(int j = 0;j<M/2/32;j++)
+                {
+                    int step = (ctx->size / M);
+                    int idx = j * 32 * step;
+
+                    __m512i w_real = _mm512_stream_load_si512((__m512i*)&ctx->shuffled_cos_t[offset_ptr]);
+                    __m512i w_imag = _mm512_stream_load_si512((__m512i*)&ctx->shuffled_sin_t[offset_ptr]);
+                    
+                    // 3. 更新偏移量，为下一次迭代做准备
+                    offset_ptr += 32; // 因为我们一次处理了32个 int16_t
+
+                    // __m512i w_real = _mm512_set_epi16(ctx->cos_t[idx+step*15],ctx->cos_t[idx+step*14],ctx->cos_t[idx+step*13],ctx->cos_t[idx+step*12],ctx->cos_t[idx+step*11],ctx->cos_t[idx+step*10],ctx->cos_t[idx+step*9],ctx->cos_t[idx+step*8],ctx->cos_t[idx+step*7],ctx->cos_t[idx+step*6],ctx->cos_t[idx+step*5],ctx->cos_t[idx+step*4],ctx->cos_t[idx+step*3],ctx->cos_t[idx+step*2],ctx->cos_t[idx+step*1],ctx->cos_t[0]);
+                    // __m512i w_imag = _mm512_set_epi16(-ctx->sin_t[idx+step*15],-ctx->sin_t[idx+step*14],-ctx->sin_t[idx+step*13],-ctx->sin_t[idx+step*12],-ctx->sin_t[idx+step*11],-ctx->sin_t[idx+step*10],-ctx->sin_t[idx+step*9],-ctx->sin_t[idx+step*8],-ctx->sin_t[idx+step*7],-ctx->sin_t[idx+step*6],-ctx->sin_t[idx+step*5],-ctx->sin_t[idx+step*4],-ctx->sin_t[idx+step*3],-ctx->sin_t[idx+step*2],-ctx->sin_t[idx+step*1],-ctx->sin_t[0]);
+
+
+                    // __m512i w_real = _mm512_set_epi16(FLOAT_TO_Q15(-cosf(2*M_PI/M*7)),FLOAT_TO_Q15(-cosf(2*M_PI/M*6)),FLOAT_TO_Q15(-cosf(2*M_PI/M*5)),FLOAT_TO_Q15(-cosf(2*M_PI/M*4)),FLOAT_TO_Q15(-cosf(2*M_PI/M*3)),FLOAT_TO_Q15(-cosf(2*M_PI/M*2)),FLOAT_TO_Q15(-cosf(2*M_PI/M*1)),FLOAT_TO_Q15(-cosf(2*M_PI/M*0)),FLOAT_TO_Q15(cosf(2*M_PI/M*7)),FLOAT_TO_Q15(cosf(2*M_PI/M*6)),FLOAT_TO_Q15(cosf(2*M_PI/M*5)),FLOAT_TO_Q15(cosf(2*M_PI/M*4)),FLOAT_TO_Q15(cosf(2*M_PI/M*3)),FLOAT_TO_Q15(cosf(2*M_PI/M*2)),FLOAT_TO_Q15(cosf(2*M_PI/M*1)),FLOAT_TO_Q15(cosf(2*M_PI/M*0)));//低位正，高位负
+                    // __m512i w_imag = _mm512_set_epi16(FLOAT_TO_Q15(-sinf(-2*M_PI/M*7)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*6)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*5)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*4)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*3)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*2)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*1)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*0)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*7)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*6)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*5)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*4)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*3)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*2)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*1)),FLOAT_TO_Q15(-sinf(-2*M_PI/M*0)));
+
+                    __m512i real_val1 = real_vec[k+j];
+                    __m512i imag_val1 = imag_vec[k+j];
+                    __m512i real_val2 = real_vec[k+j+M/2/32];
+                    __m512i imag_val2 = imag_vec[k+j+M/2/32];
+
+
+                    __m512i r_real = _mm512_sub_epi16(_mm512_mulhrs_epi16(real_val2,w_real),_mm512_mulhrs_epi16(imag_val2,w_imag));//可用FMA优化 
+                    __m512i i_imag = _mm512_add_epi16(_mm512_mulhrs_epi16(real_val2,w_imag),_mm512_mulhrs_epi16(imag_val2,w_real));//可用FMA优化
+
+                    real_vec[k+j] = _mm512_add_epi16(real_val1,r_real);
+                    imag_vec[k+j] = _mm512_add_epi16(imag_val1,i_imag);
+                    real_vec[k+j+M/2/32] = _mm512_sub_epi16(real_val1,r_real);
+                    imag_vec[k+j+M/2/32] = _mm512_sub_epi16(imag_val1,i_imag);
+
+
+
+
+                }
+            }
+        }
     }
 }

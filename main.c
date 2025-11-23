@@ -139,7 +139,7 @@ int main() {
 
     printf("---FFT 性能与误差对比测试---\n");
     int fft_size[] = {1 << 12};  // 4096点FFT
-    int repeat = 10000;
+    int repeat = 100000;
 
     for (int i = 0; i < sizeof(fft_size)/sizeof(fft_size[0]); i++) {
         int size = fft_size[i];
