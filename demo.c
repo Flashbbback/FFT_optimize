@@ -1,4 +1,4 @@
-#include "../src/FFT.h"
+#include "include/fft_lib.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
