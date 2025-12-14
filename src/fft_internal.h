@@ -12,8 +12,6 @@ struct FFTContext{
     float *sin_table;
     float *shuffled_cos_table;
     float *shuffled_sin_table;
-    int16_t *cos_t;
-    int16_t *sin_t;
     int16_t *shuffled_cos_t;
     int16_t *shuffled_sin_t;
     int *stage_offsets;
@@ -25,6 +23,7 @@ struct FFTContext{
 // 通用宏
 #define M_PI 3.14159265358979323846
 #define SQRT2_2 0.70710678118654752440f
+#define Q15_SQRT2_2  23170  
 #define Q 15                  // Q15格式：15位小数位
 #define SCALE (1 << Q)        // 缩放因子：32768
 #define INT16_MAX 32767       // int16_t最大值

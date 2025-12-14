@@ -34,7 +34,7 @@ TARGET = fft_test
 MAIN_FILE ?= Perform.c
 
 # 根据MAIN_FILE变量构建源文件列表
-SRCS = $(MAIN_FILE) src/fft_tables.c src/fft_avx_float.c src/fft_avx_fixed.c src/fft_utils.c
+SRCS = $(MAIN_FILE) src/fft_tables.c src/fft_avx_float.c src/fft_avx_fixed.c src/fft_utils.c src/ifft.c
 OBJS = $(SRCS:.c=.o)
 
 # ==========================================

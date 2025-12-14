@@ -63,11 +63,18 @@ static inline void fft_stage_M2(__m256i *real_vec, __m256i *imag_vec, int num_ve
 // =============================================================
 // Stage 2: M = 4 (Butterfly Step = 2)
 // =============================================================
-static inline void fft_stage_M4(__m256i *real_vec, __m256i *imag_vec, int num_vecs, FFTContext *ctx)
+static inline void fft_stage_M4(__m256i *real_vec, __m256i *imag_vec, int num_vecs)
 {
-    int step = ctx->size / 4;
-    __m256i w_real = _mm256_set_epi16(ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0],ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*1],ctx->cos_t[step*0]);
-    __m256i w_imag = _mm256_set_epi16(ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*1],ctx->sin_t[step*0]);
+    __m256i w_real = _mm256_set_epi16(
+            0, INT16_MIN, 0, INT16_MAX,
+            0, INT16_MIN, 0, INT16_MAX,
+            0, INT16_MIN, 0, INT16_MAX,
+            0, INT16_MIN, 0, INT16_MAX);
+    __m256i w_imag = _mm256_set_epi16( 
+            INT16_MAX, 0, INT16_MIN, 0,
+            INT16_MAX, 0, INT16_MIN, 0,
+            INT16_MAX, 0, INT16_MIN, 0,
+            INT16_MAX, 0, INT16_MIN, 0);
     __m256i a_mask = _mm256_setr_epi8(
         0,1,2,3,0,1,2,3,8,9,10,11,8,9,10,11,
         0,1,2,3,0,1,2,3,8,9,10,11,8,9,10,11
@@ -89,32 +96,38 @@ static inline void fft_stage_M4(__m256i *real_vec, __m256i *imag_vec, int num_ve
 
         // Complex Multiply: (br + j*bi) * (wr + j*wi)
         // Real: br*wr - bi*wi, Imag: br*wi + bi*wr
-        __m256i tr = _mm256_sub_epi16(_mm256_mulhrs_epi16(br, w_real), _mm256_mulhrs_epi16(bi, w_imag));
-        __m256i ti = _mm256_add_epi16(_mm256_mulhrs_epi16(br, w_imag), _mm256_mulhrs_epi16(bi, w_real));
+        __m256i tr = _mm256_subs_epi16(_mm256_mulhrs_epi16(br, w_real), _mm256_mulhrs_epi16(bi, w_imag));
+        __m256i ti = _mm256_adds_epi16(_mm256_mulhrs_epi16(br, w_imag), _mm256_mulhrs_epi16(bi, w_real));
 
-        real_vec[j] = _mm256_add_epi16(ar, tr);
-        imag_vec[j] = _mm256_add_epi16(ai, ti);
+        real_vec[j] = _mm256_adds_epi16(ar, tr);
+        imag_vec[j] = _mm256_adds_epi16(ai, ti);
     }
 }
 
 // =============================================================
 // Stage 3: M = 8 (Butterfly Step = 4)
 // =============================================================
-static inline void fft_stage_M8(__m256i *real_vec, __m256i *imag_vec, int num_vecs, FFTContext *ctx)
+static inline void fft_stage_M8(__m256i *real_vec, __m256i *imag_vec, int num_vecs)
 {
-    int step = ctx->size / 8;
+
     // 构造旋转因子 (建议预计算优化)
     __m256i w_real = _mm256_set_epi16(
-        -ctx->cos_t[step*3], -ctx->cos_t[step*2], -ctx->cos_t[step*1], -ctx->cos_t[0],
-         ctx->cos_t[step*3],  ctx->cos_t[step*2],  ctx->cos_t[step*1],  ctx->cos_t[0],
-        -ctx->cos_t[step*3], -ctx->cos_t[step*2], -ctx->cos_t[step*1], -ctx->cos_t[0],
-         ctx->cos_t[step*3],  ctx->cos_t[step*2],  ctx->cos_t[step*1],  ctx->cos_t[0]
+        Q15_SQRT2_2, 0, -Q15_SQRT2_2, INT16_MIN,
+        // 第6组：cos3, cos2, cos1, cos0
+        -Q15_SQRT2_2, 0, Q15_SQRT2_2, INT16_MAX,
+        // 第7组：-cos3, -cos2, -cos1, -cos0
+        Q15_SQRT2_2, 0, -Q15_SQRT2_2, INT16_MIN,
+        // 第8组：cos3, cos2, cos1, cos0
+        -Q15_SQRT2_2, 0, Q15_SQRT2_2, INT16_MAX
     );
     __m256i w_imag = _mm256_set_epi16(
-         ctx->sin_t[step*3],  ctx->sin_t[step*2],  ctx->sin_t[step*1],  ctx->sin_t[0],
-        -ctx->sin_t[step*3], -ctx->sin_t[step*2], -ctx->sin_t[step*1], -ctx->sin_t[0],
-         ctx->sin_t[step*3],  ctx->sin_t[step*2],  ctx->sin_t[step*1],  ctx->sin_t[0],
-        -ctx->sin_t[step*3], -ctx->sin_t[step*2], -ctx->sin_t[step*1], -ctx->sin_t[0]
+        Q15_SQRT2_2, INT16_MAX, Q15_SQRT2_2, 0,
+        // 第6组：-sin3, -sin2, -sin1, -sin0
+        -Q15_SQRT2_2, INT16_MIN, -Q15_SQRT2_2, -0,
+        // 第7组：sin3, sin2, sin1, sin0
+        Q15_SQRT2_2, INT16_MAX, Q15_SQRT2_2, 0,
+        // 第8组：-sin3, -sin2, -sin1, -sin0
+        -Q15_SQRT2_2, INT16_MIN, -Q15_SQRT2_2, -0
     );
 
     
@@ -138,11 +151,11 @@ static inline void fft_stage_M8(__m256i *real_vec, __m256i *imag_vec, int num_ve
         __m256i br = _mm256_shuffle_epi8(r, mask_B);
         __m256i bi = _mm256_shuffle_epi8(i, mask_B);
 
-        __m256i tr = _mm256_sub_epi16(_mm256_mulhrs_epi16(br, w_real), _mm256_mulhrs_epi16(bi, w_imag));
-        __m256i ti = _mm256_add_epi16(_mm256_mulhrs_epi16(br, w_imag), _mm256_mulhrs_epi16(bi, w_real));
+        __m256i tr = _mm256_subs_epi16(_mm256_mulhrs_epi16(br, w_real), _mm256_mulhrs_epi16(bi, w_imag));
+        __m256i ti = _mm256_adds_epi16(_mm256_mulhrs_epi16(br, w_imag), _mm256_mulhrs_epi16(bi, w_real));
 
-        real_vec[j] = _mm256_add_epi16(ar, tr);
-        imag_vec[j] = _mm256_add_epi16(ai, ti);
+        real_vec[j] = _mm256_adds_epi16(ar, tr);
+        imag_vec[j] = _mm256_adds_epi16(ai, ti);
     }
 }
 
@@ -150,13 +163,12 @@ static inline void fft_stage_M8(__m256i *real_vec, __m256i *imag_vec, int num_ve
 // Stage 4: M = 16 (Butterfly Step = 8)
 // 跨 128-bit Lane 操作
 // =============================================================
-static inline void fft_stage_M16(__m256i *real_vec, __m256i *imag_vec, int num_vecs, FFTContext *ctx)
+static inline void fft_stage_M16(__m256i *real_vec, __m256i *imag_vec, int num_vecs)
 {
-    int step = ctx->size / 16;
     // 构造旋转因子
     // 简写示例，需按原逻辑填充 16 个值
-    __m256i w_real = _mm256_set_epi16(-ctx->cos_t[step*7],-ctx->cos_t[step*6],-ctx->cos_t[step*5],-ctx->cos_t[step*4],-ctx->cos_t[step*3],-ctx->cos_t[step*2],-ctx->cos_t[step*1],-ctx->cos_t[step*0],ctx->cos_t[step*7],ctx->cos_t[step*6],ctx->cos_t[step*5],ctx->cos_t[step*4],ctx->cos_t[step*3],ctx->cos_t[step*2],ctx->cos_t[step*1],ctx->cos_t[0]);
-    __m256i w_imag = _mm256_set_epi16(ctx->sin_t[step*7],ctx->sin_t[step*6],ctx->sin_t[step*5],ctx->sin_t[step*4],ctx->sin_t[step*3],ctx->sin_t[step*2],ctx->sin_t[step*1],ctx->sin_t[step*0],-ctx->sin_t[step*7],-ctx->sin_t[step*6],-ctx->sin_t[step*5],-ctx->sin_t[step*4],-ctx->sin_t[step*3],-ctx->sin_t[step*2],-ctx->sin_t[step*1],-ctx->sin_t[0]);
+    __m256i w_real = _mm256_set_epi16(FLOAT_TO_Q15(-cosf(2*M_PI/16*7)),FLOAT_TO_Q15(-cosf(2*M_PI/16*6)),FLOAT_TO_Q15(-cosf(2*M_PI/16*5)),FLOAT_TO_Q15(-cosf(2*M_PI/16*4)),FLOAT_TO_Q15(-cosf(2*M_PI/16*3)),FLOAT_TO_Q15(-cosf(2*M_PI/16*2)),FLOAT_TO_Q15(-cosf(2*M_PI/16*1)),FLOAT_TO_Q15(-cosf(2*M_PI/16*0)),FLOAT_TO_Q15(cosf(2*M_PI/16*7)),FLOAT_TO_Q15(cosf(2*M_PI/16*6)),FLOAT_TO_Q15(cosf(2*M_PI/16*5)),FLOAT_TO_Q15(cosf(2*M_PI/16*4)),FLOAT_TO_Q15(cosf(2*M_PI/16*3)),FLOAT_TO_Q15(cosf(2*M_PI/16*2)),FLOAT_TO_Q15(cosf(2*M_PI/16*1)),FLOAT_TO_Q15(cosf(2*M_PI/16*0)));
+    __m256i w_imag = _mm256_set_epi16(FLOAT_TO_Q15(-sinf(-2*M_PI/16*7)),FLOAT_TO_Q15(-sinf(-2*M_PI/16*6)),FLOAT_TO_Q15(-sinf(-2*M_PI/16*5)),FLOAT_TO_Q15(-sinf(-2*M_PI/16*4)),FLOAT_TO_Q15(-sinf(-2*M_PI/16*3)),FLOAT_TO_Q15(-sinf(-2*M_PI/16*2)),FLOAT_TO_Q15(-sinf(-2*M_PI/16*1)),FLOAT_TO_Q15(-sinf(-2*M_PI/16*0)),FLOAT_TO_Q15(sinf(-2*M_PI/16*7)),FLOAT_TO_Q15(sinf(-2*M_PI/16*6)),FLOAT_TO_Q15(sinf(-2*M_PI/16*5)),FLOAT_TO_Q15(sinf(-2*M_PI/16*4)),FLOAT_TO_Q15(sinf(-2*M_PI/16*3)),FLOAT_TO_Q15(sinf(-2*M_PI/16*2)),FLOAT_TO_Q15(sinf(-2*M_PI/16*1)),FLOAT_TO_Q15(sinf(-2*M_PI/16*0)));
 
     
     for(int j = 0; j < num_vecs; j++)
@@ -173,11 +185,11 @@ static inline void fft_stage_M16(__m256i *real_vec, __m256i *imag_vec, int num_v
         __m256i br = _mm256_permute2x128_si256(r, r, 0x11);
         __m256i bi = _mm256_permute2x128_si256(i, i, 0x11);
 
-        __m256i tr = _mm256_sub_epi16(_mm256_mulhrs_epi16(br, w_real), _mm256_mulhrs_epi16(bi, w_imag));
-        __m256i ti = _mm256_add_epi16(_mm256_mulhrs_epi16(br, w_imag), _mm256_mulhrs_epi16(bi, w_real));
+        __m256i tr = _mm256_subs_epi16(_mm256_mulhrs_epi16(br, w_real), _mm256_mulhrs_epi16(bi, w_imag));
+        __m256i ti = _mm256_adds_epi16(_mm256_mulhrs_epi16(br, w_imag), _mm256_mulhrs_epi16(bi, w_real));
 
-        real_vec[j] = _mm256_add_epi16(ar, tr);
-        imag_vec[j] = _mm256_add_epi16(ai, ti);
+        real_vec[j] = _mm256_adds_epi16(ar, tr);
+        imag_vec[j] = _mm256_adds_epi16(ai, ti);
     }
 }
 
@@ -202,9 +214,9 @@ void fft_AVX_fixedP(int16_t *real, int16_t *imag, int N, FFTContext *ctx)
     // -----------------------------------------------------
     
     if (m >= 1) fft_stage_M2(real_vec, imag_vec, num_vecs);
-    if (m >= 2) fft_stage_M4(real_vec, imag_vec, num_vecs, ctx);
-    if (m >= 3) fft_stage_M8(real_vec, imag_vec, num_vecs, ctx);
-    if (m >= 4) fft_stage_M16(real_vec, imag_vec, num_vecs, ctx);
+    if (m >= 2) fft_stage_M4(real_vec, imag_vec, num_vecs);
+    if (m >= 3) fft_stage_M8(real_vec, imag_vec, num_vecs);
+    if (m >= 4) fft_stage_M16(real_vec, imag_vec, num_vecs);
 
     // -----------------------------------------------------
     // 2. 寄存器间处理阶段 (Inter-register Stages)
@@ -240,13 +252,13 @@ void fft_AVX_fixedP(int16_t *real, int16_t *imag, int N, FFTContext *ctx)
                 __m256i i2 = imag_vec[idx2];
 
                 // 蝶形运算
-                __m256i tr = _mm256_sub_epi16(_mm256_mulhrs_epi16(r2, w_real), _mm256_mulhrs_epi16(i2, w_imag));
-                __m256i ti = _mm256_add_epi16(_mm256_mulhrs_epi16(r2, w_imag), _mm256_mulhrs_epi16(i2, w_real));
+                __m256i tr = _mm256_subs_epi16(_mm256_mulhrs_epi16(r2, w_real), _mm256_mulhrs_epi16(i2, w_imag));
+                __m256i ti = _mm256_adds_epi16(_mm256_mulhrs_epi16(r2, w_imag), _mm256_mulhrs_epi16(i2, w_real));
 
-                real_vec[idx1] = _mm256_add_epi16(r1, tr);
-                imag_vec[idx1] = _mm256_add_epi16(i1, ti);
-                real_vec[idx2] = _mm256_sub_epi16(r1, tr);
-                imag_vec[idx2] = _mm256_sub_epi16(i1, ti);
+                real_vec[idx1] = _mm256_adds_epi16(r1, tr);
+                imag_vec[idx1] = _mm256_adds_epi16(i1, ti);
+                real_vec[idx2] = _mm256_subs_epi16(r1, tr);
+                imag_vec[idx2] = _mm256_subs_epi16(i1, ti);
             }
         }
     }

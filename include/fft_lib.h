@@ -13,5 +13,9 @@ void free_trig_table(FFTContext* ctx);
 // 执行接口
 void fft_AVX(float* real, float* imag, int N, FFTContext* ctx);
 void fft_AVX_fixedP(int16_t* real, int16_t* imag, int N, FFTContext* ctx);
+void fft_AVX512_fixedP(int16_t* real, int16_t* imag, FFTContext* ctx);
 void fft_diedai(float* real, float* imag, int N, FFTContext* ctx);
+void ifft_AVX_reuse(float *real, float *imag, int N, FFTContext *ctx);
+void ifft_AVX_fixedP(int16_t *real, int16_t *imag, int N, FFTContext *ctx);
+// void ifft_AVX512_fixedP_reuse(int16_t *real, int16_t *imag, FFTContext *ctx);
 #endif

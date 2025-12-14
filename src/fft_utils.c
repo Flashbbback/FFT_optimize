@@ -37,6 +37,9 @@ void fft_diedai(float *real,float *imag,int N, FFTContext* ctx)
                 int idx = j * (ctx->size / M);
                 WN_real = ctx->cos_table[idx];
                 WN_imag = -ctx->sin_table[idx];
+                // WN_real = cosf(2*M_PI*j/M);
+                // WN_imag = -sinf(2*M_PI*j/M);
+
                 int t = k+j;
                 int u = k+j + M/2;
                 float temp_real1 = real[t] + real[u]*WN_real - imag[u]*WN_imag;
@@ -47,9 +50,8 @@ void fft_diedai(float *real,float *imag,int N, FFTContext* ctx)
                 imag[t] = temp_imag1;   
                 real[u] = temp_real2;
                 imag[u] = temp_imag2;
-                // float temp_WN_real = WN_real;
-                // WN_real = temp_WN_real * cosf(2*M_PI/M) + WN_imag * sinf(2*M_PI/M);  
-                // WN_imag = WN_imag * cosf(2*M_PI/M) - temp_WN_real * sinf(2*M_PI/M);  
+                WN_real = cosf(2*M_PI*j/M);
+                WN_imag = -sinf(2*M_PI*j/M);  
             }
 
         }

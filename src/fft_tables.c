@@ -11,8 +11,8 @@ FFTContext* trig_table(int max_size)
     ctx->size = max_size;
     ctx->cos_table = (float*)_aligned_malloc((max_size/2) * sizeof(float),32);
     ctx->sin_table = (float*)_aligned_malloc((max_size/2) * sizeof(float),32);
-    ctx->cos_t = (int16_t*)_aligned_malloc((max_size/2) * sizeof(int16_t),32);
-    ctx->sin_t = (int16_t*)_aligned_malloc((max_size/2) * sizeof(int16_t),32);
+
+
     ctx->pos = (int*)_aligned_malloc(max_size * sizeof(int),32);
     ctx->pos[0] = 0;
     for (int i = 1; i < max_size; i++) {
@@ -22,8 +22,6 @@ FFTContext* trig_table(int max_size)
     for (int i = 0; i < max_size/2; i++) {
         ctx->cos_table[i] = cosf(2 * M_PI * i / max_size);
         ctx->sin_table[i] = sinf(2 * M_PI * i / max_size);
-        ctx->cos_t[i] = FLOAT_TO_Q15(ctx->cos_table[i]);
-        ctx->sin_t[i] = FLOAT_TO_Q15(ctx->sin_table[i]);
 
     }
     //重排旋转因子 用于FFT中顺序读取
@@ -62,12 +60,16 @@ FFTContext* trig_table(int max_size)
 
                 // 把将来要访问的8个跨步值，现在就连续存起来
                 for (int i = 0; i < 8; i++) {
-                    ctx->shuffled_cos_table[current_offset + i] = ctx->cos_table[idx + i * step];
+
+                    ctx->shuffled_cos_table[current_offset + i] = cosf(2 * M_PI * (idx + i * step) / max_size);
                     // 存 -sin 的值，这样在fft中就不用再取反了
-                    ctx->shuffled_sin_table[current_offset + i] = -ctx->sin_table[idx + i * step];
-                    ctx->shuffled_cos_t[current_offset + i] = FLOAT_TO_Q15(ctx->cos_table[idx + i * step]);
+                    ctx->shuffled_sin_table[current_offset + i] = -sinf(2 * M_PI * (idx + i * step) / max_size);
+
+
+
+                    ctx->shuffled_cos_t[current_offset + i] = FLOAT_TO_Q15(cosf(2 * M_PI * (idx + i * step) / max_size));
                     // 存 -sin 的值，这样在fft中就不用再取反了
-                    ctx->shuffled_sin_t[current_offset + i] = FLOAT_TO_Q15(-ctx->sin_table[idx + i * step]);
+                    ctx->shuffled_sin_t[current_offset + i] = FLOAT_TO_Q15(-sinf(2 * M_PI * (idx + i * step) / max_size));
                 }
                 current_offset += 8; // 移动到下一个存储位置
             }
@@ -85,8 +87,10 @@ void free_trig_table(FFTContext* ctx) {
     if (ctx) {
         _aligned_free(ctx->cos_table);
         _aligned_free(ctx->sin_table);
-        _aligned_free(ctx->cos_t);
-        _aligned_free(ctx->sin_t);
+        _aligned_free(ctx->shuffled_cos_t);
+        _aligned_free(ctx->shuffled_sin_t);
+        _aligned_free(ctx->shuffled_cos_table);
+        _aligned_free(ctx->shuffled_sin_table);
         _aligned_free(ctx->pos);
         free(ctx);
     }
