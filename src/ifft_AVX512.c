@@ -1,6 +1,8 @@
-#include "fft_internal.h" // 假设这里面包含了 immintrin.h 和结构体定义
-#include <stdint.h>
-#include <stdio.h>
+#include "fft_internal.h"
+// 辅助宏：右移1位以进行缩放 (Divide by 2)
+// 防止定点数加法溢出，实现 1/N 的归一化
+#define SCALE_DOWN(v) _mm512_srai_epi16((v), 1)
+
 
 
 static inline void bit_reverse_q15(int16_t real[], int16_t imag[], int N,FFTContext* ctx)
@@ -23,7 +25,7 @@ static inline void bit_reverse_q15(int16_t real[], int16_t imag[], int N,FFTCont
 // =============================================================
 // Stage 1: M = 2
 // =============================================================
-static inline void fft_stage_avx512_M2(__m512i *real_vec, __m512i *imag_vec, int num_vecs)
+static inline void ifft_stage_avx512_M2(__m512i *real_vec, __m512i *imag_vec, int num_vecs)
 {
     // M=2 Mask (从用户代码提取)
     // 注意：上面这种初始化方式依赖编译器扩展，更标准的做法是 byte array，
@@ -58,10 +60,16 @@ static inline void fft_stage_avx512_M2(__m512i *real_vec, __m512i *imag_vec, int
         __m512i oi = _mm512_shuffle_epi8(i, odd_mask);
 
         //0+1 2+3 4+5 6+7 ...
-        __m512i sum_r = _mm512_add_epi16(er, or_val);
-        __m512i sum_i = _mm512_add_epi16(ei, oi);
-        __m512i sub_r = _mm512_sub_epi16(er, or_val);
-        __m512i sub_i = _mm512_sub_epi16(ei, oi);
+        __m512i sum_r = _mm512_adds_epi16(er, or_val);
+        __m512i sum_i = _mm512_adds_epi16(ei, oi);
+        __m512i sub_r = _mm512_subs_epi16(er, or_val);
+        __m512i sub_i = _mm512_subs_epi16(ei, oi);
+
+        // 【IFFT 关键点】：每一级结束后右移 1 位，防止溢出
+        sum_r = SCALE_DOWN(sum_r);
+        sum_i = SCALE_DOWN(sum_i);
+        sub_r = SCALE_DOWN(sub_r);
+        sub_i = SCALE_DOWN(sub_i);
 
         real_vec[j] = _mm512_unpacklo_epi16(sum_r, sub_r);
         imag_vec[j] = _mm512_unpacklo_epi16(sum_i, sub_i);
@@ -71,7 +79,7 @@ static inline void fft_stage_avx512_M2(__m512i *real_vec, __m512i *imag_vec, int
 // =============================================================
 // Stage 2: M = 4
 // =============================================================
-static inline void fft_stage_avx512_M4(__m512i *real_vec, __m512i *imag_vec, int num_vecs)
+static inline void ifft_stage_avx512_M4(__m512i *real_vec, __m512i *imag_vec, int num_vecs)
 {
     
     // W = {1, 0, -i, 0, 1, 0, -i ...}
@@ -146,11 +154,11 @@ static inline void fft_stage_avx512_M4(__m512i *real_vec, __m512i *imag_vec, int
         __m512i br = _mm512_shuffle_epi8(r, mask_b);
         __m512i bi = _mm512_shuffle_epi8(i, mask_b);
 
-        __m512i tr = _mm512_sub_epi16(_mm512_mulhrs_epi16(br, wr), _mm512_mulhrs_epi16(bi, wi));
-        __m512i ti = _mm512_add_epi16(_mm512_mulhrs_epi16(br, wi), _mm512_mulhrs_epi16(bi, wr));
+        __m512i tr = _mm512_adds_epi16(_mm512_mulhrs_epi16(br, wr), _mm512_mulhrs_epi16(bi, wi));
+        __m512i ti = _mm512_subs_epi16(_mm512_mulhrs_epi16(bi, wr), _mm512_mulhrs_epi16(br, wi));
 
-        real_vec[j] = _mm512_add_epi16(ar, tr);
-        imag_vec[j] = _mm512_add_epi16(ai, ti);
+        real_vec[j] = SCALE_DOWN(_mm512_add_epi16(ar, tr));
+        imag_vec[j] = SCALE_DOWN(_mm512_add_epi16(ai, ti));
     }
 }
 
@@ -240,18 +248,18 @@ static inline void fft_stage_avx512_M8(__m512i *real_vec, __m512i *imag_vec, int
         __m512i br = _mm512_shuffle_epi8(r, mask_b);
         __m512i bi = _mm512_shuffle_epi8(i, mask_b);
 
-        __m512i tr = _mm512_sub_epi16(_mm512_mulhrs_epi16(br, wr), _mm512_mulhrs_epi16(bi, wi));
-        __m512i ti = _mm512_add_epi16(_mm512_mulhrs_epi16(br, wi), _mm512_mulhrs_epi16(bi, wr));
+        __m512i tr = _mm512_adds_epi16(_mm512_mulhrs_epi16(br, wr), _mm512_mulhrs_epi16(bi, wi));
+        __m512i ti = _mm512_subs_epi16(_mm512_mulhrs_epi16(bi, wr), _mm512_mulhrs_epi16(br, wi));
 
-        real_vec[j] = _mm512_add_epi16(ar, tr);
-        imag_vec[j] = _mm512_add_epi16(ai, ti);
+        real_vec[j] = SCALE_DOWN(_mm512_add_epi16(ar, tr));
+        imag_vec[j] = SCALE_DOWN(_mm512_add_epi16(ai, ti));
     }
 }
 
 // =============================================================
 // Stage 4: M = 16
 // =============================================================
-static inline void fft_stage_avx512_M16(__m512i *real_vec, __m512i *imag_vec, int num_vecs)
+static inline void ifft_stage_avx512_M16(__m512i *real_vec, __m512i *imag_vec, int num_vecs)
 {
     // 逻辑同上，Mask 跨度变大
     // Mask A: 0..7, Mask B: 8..15 (lane local)
@@ -284,18 +292,18 @@ static inline void fft_stage_avx512_M16(__m512i *real_vec, __m512i *imag_vec, in
         __m512i br = _mm512_permutexvar_epi64(mask_b, r);
         __m512i bi = _mm512_permutexvar_epi64(mask_b, i);
 
-        __m512i tr = _mm512_sub_epi16(_mm512_mulhrs_epi16(br, wr), _mm512_mulhrs_epi16(bi, wi));
-        __m512i ti = _mm512_add_epi16(_mm512_mulhrs_epi16(br, wi), _mm512_mulhrs_epi16(bi, wr));
+        __m512i tr = _mm512_adds_epi16(_mm512_mulhrs_epi16(br, wr), _mm512_mulhrs_epi16(bi, wi));
+        __m512i ti = _mm512_subs_epi16(_mm512_mulhrs_epi16(bi, wr), _mm512_mulhrs_epi16(br, wi));
 
-        real_vec[j] = _mm512_add_epi16(ar, tr);
-        imag_vec[j] = _mm512_add_epi16(ai, ti);
+        real_vec[j] = SCALE_DOWN(_mm512_add_epi16(ar, tr));
+        imag_vec[j] = SCALE_DOWN(_mm512_add_epi16(ai, ti));
     }
 }
 
 // =============================================================
 // Stage 5: M = 32 (AVX512 特有)
 // =============================================================
-static inline void fft_stage_avx512_M32(__m512i *real_vec, __m512i *imag_vec, int num_vecs)
+static inline void ifft_stage_avx512_M32(__m512i *real_vec, __m512i *imag_vec, int num_vecs)
 {
     // M=32 填满整个 512 位寄存器 (32 int16)
     // 需要交换低 256 位和高 256 位？或者 Lane 间的交换。
@@ -333,18 +341,18 @@ static inline void fft_stage_avx512_M32(__m512i *real_vec, __m512i *imag_vec, in
         __m512i br = _mm512_permutexvar_epi64(mask_b, r);
         __m512i bi = _mm512_permutexvar_epi64(mask_b, i);
 
-        __m512i tr = _mm512_sub_epi16(_mm512_mulhrs_epi16(br, wr), _mm512_mulhrs_epi16(bi, wi));
-        __m512i ti = _mm512_add_epi16(_mm512_mulhrs_epi16(br, wi), _mm512_mulhrs_epi16(bi, wr));
+        __m512i tr = _mm512_adds_epi16(_mm512_mulhrs_epi16(br, wr), _mm512_mulhrs_epi16(bi, wi));
+        __m512i ti = _mm512_subs_epi16(_mm512_mulhrs_epi16(bi, wr), _mm512_mulhrs_epi16(br, wi));
 
-        real_vec[j] = _mm512_add_epi16(ar, tr);
-        imag_vec[j] = _mm512_add_epi16(ai, ti);
+        real_vec[j] = SCALE_DOWN(_mm512_add_epi16(ar, tr));
+        imag_vec[j] = SCALE_DOWN(_mm512_add_epi16(ai, ti));
     }
 }
 
 // =============================================================
 // 主函数
 // =============================================================
-void fft_AVX512_fixedP(int16_t *real, int16_t *imag, FFTContext *ctx)
+void ifft_AVX512_fixedP(int16_t *real, int16_t *imag, FFTContext *ctx)
 {
 
     int N = ctx->size;
@@ -359,15 +367,15 @@ void fft_AVX512_fixedP(int16_t *real, int16_t *imag, FFTContext *ctx)
     int tempN = N; while(tempN >>= 1) m++;
 
     // Intra-register Stages
-    if (m >= 1) fft_stage_avx512_M2(real_vec, imag_vec, num_vecs);
+    if (m >= 1) ifft_stage_avx512_M2(real_vec, imag_vec, num_vecs);
 
-    if (m >= 2) fft_stage_avx512_M4(real_vec, imag_vec, num_vecs);
+    if (m >= 2) ifft_stage_avx512_M4(real_vec, imag_vec, num_vecs);
 
-    if (m >= 3) fft_stage_avx512_M8(real_vec, imag_vec, num_vecs);
+    if (m >= 3) ifft_stage_avx512_M8(real_vec, imag_vec, num_vecs);
 
-    if (m >= 4) fft_stage_avx512_M16(real_vec, imag_vec, num_vecs);
+    if (m >= 4) ifft_stage_avx512_M16(real_vec, imag_vec, num_vecs);
 
-    if (m >= 5) fft_stage_avx512_M32(real_vec, imag_vec, num_vecs);
+    if (m >= 5) ifft_stage_avx512_M32(real_vec, imag_vec, num_vecs);
 
 
     // Inter-register Stages (M >= 64)
@@ -396,13 +404,13 @@ void fft_AVX512_fixedP(int16_t *real, int16_t *imag, FFTContext *ctx)
                 __m512i r2 = real_vec[idx2];
                 __m512i i2 = imag_vec[idx2];
 
-                __m512i tr = _mm512_sub_epi16(_mm512_mulhrs_epi16(r2, w_real), _mm512_mulhrs_epi16(i2, w_imag));
-                __m512i ti = _mm512_add_epi16(_mm512_mulhrs_epi16(r2, w_imag), _mm512_mulhrs_epi16(i2, w_real));
+                __m512i tr = _mm512_adds_epi16(_mm512_mulhrs_epi16(r2, w_real), _mm512_mulhrs_epi16(i2, w_imag));
+                __m512i ti = _mm512_subs_epi16(_mm512_mulhrs_epi16(i2, w_real), _mm512_mulhrs_epi16(r2, w_imag));
 
-                real_vec[idx1] = _mm512_add_epi16(r1, tr);
-                imag_vec[idx1] = _mm512_add_epi16(i1, ti);
-                real_vec[idx2] = _mm512_sub_epi16(r1, tr);
-                imag_vec[idx2] = _mm512_sub_epi16(i1, ti);
+                real_vec[idx1] = SCALE_DOWN(_mm512_add_epi16(r1, tr));
+                imag_vec[idx1] = SCALE_DOWN(_mm512_add_epi16(i1, ti));
+                real_vec[idx2] = SCALE_DOWN(_mm512_sub_epi16(r1, tr));
+                imag_vec[idx2] = SCALE_DOWN(_mm512_sub_epi16(i1, ti));
             }
         }
     }
